@@ -353,7 +353,11 @@ function go(v) {
   // 就卡死。数据只由卡片上的「检查」按钮显式触发；卡片初始隐藏。
   if (v === 'taskscenter') reattachQueueView();
 }
-document.querySelectorAll('.nav a').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.view); history.replaceState(null, '', '#' + a.dataset.view); });
+/* 只绑定【带 data-view 的】导航项：它们是 SPA 内部页签。
+   「密钥分发」是独立页面（/panel/keys），没有 data-view —— 早先的通配选择器会把它的
+   点击也 preventDefault，再 go(undefined)（把所有 view 都 hidden）→ 主内容区空白，
+   地址栏留下 #undefined。改成只选 [data-view] 后，独立页面走浏览器默认跳转。 */
+document.querySelectorAll('.nav a[data-view]').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.view); history.replaceState(null, '', '#' + a.dataset.view); });
 /* 首次进入延到本轮脚本求值之后再 go()。
    原因：go() 会同步触发视图的数据加载（loadUsage/loadLogs/loadPackages…），而这些
    函数读到的模块级 let/const（usageRateWarmAt、PK_* 等）在文件后半段才初始化——
