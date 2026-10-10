@@ -153,6 +153,14 @@ func (p *Panel) Logs() *Ring { return p.logs }
 func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/{$}", p.index)
 	p.mux.HandleFunc("GET /panel/app.js", p.appScript)
+	// 「密钥分发」页：页面与脚本本身无秘密（与 index/app.js 同口径），
+	// 真正的密钥数据在 /panel/api/keys*，全部走 withAuth（面板主密钥）。
+	p.mux.HandleFunc("GET /panel/keys", p.keysPage)
+	p.mux.HandleFunc("GET /panel/keys.js", p.keysScript)
+	p.mux.HandleFunc("GET /panel/api/keys", p.withAuth(p.keysList))
+	p.mux.HandleFunc("POST /panel/api/keys", p.withAuth(p.keysCreate))
+	p.mux.HandleFunc("POST /panel/api/keys/toggle", p.withAuth(p.keysToggle))
+	p.mux.HandleFunc("POST /panel/api/keys/remove", p.withAuth(p.keysRemove))
 	p.mux.HandleFunc("GET /panel/api/overview", p.withAuth(p.overview))
 	p.mux.HandleFunc("GET /panel/api/logs", p.withAuth(p.logsHandler))
 	p.mux.HandleFunc("GET /panel/api/request_metrics", p.withAuth(p.requestMetrics))

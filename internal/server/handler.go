@@ -30,10 +30,13 @@ import (
 
 // Config handler 依赖。
 type Config struct {
-	Pool      *pool.Pool
-	Upstream  *upstream.Client
-	APIKey    string // 空 = 不鉴权（静态值；与 Live 同时给出时 Live 优先）
-	MaxRotate int    // 单请求最多换号次数，默认 3
+	Pool     *pool.Pool
+	Upstream *upstream.Client
+	APIKey   string // 空 = 不鉴权（静态值；与 Live 同时给出时 Live 优先）
+	// APIKeys 面板分发的启用密钥（静态回落值；与 Live 同时给出时 Live 优先）。
+	// 只作用于 /v1 接口 —— 面板 UI 只认 APIKey，分发出的密钥管不了账号。
+	APIKeys   []string
+	MaxRotate int // 单请求最多换号次数，默认 3
 	// Session 会话粘性路由器（可选；nil = 关闭粘性，纯 Pick 轮换）。
 	Session *session.Router
 	// StickyCount 返回当前粘性会话绑定数（供 /status）；nil 时报告 0。
@@ -83,6 +86,7 @@ func (h *Handler) loadLive() livecfg.Snapshot {
 	}
 	return livecfg.Snapshot{
 		APIKey:           h.cfg.APIKey,
+		APIKeys:          h.cfg.APIKeys,
 		SoftCooldown:     h.cfg.SoftCooldown,
 		RecordClientInfo: h.cfg.RecordClientInfo,
 	}
@@ -168,9 +172,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
+// authKeys 汇总本次请求可接受的密钥：主密钥 api_key + 面板分发的启用密钥。
+// 面板 UI（/panel/api）不走这里 —— 它只认主密钥，分发出的密钥不能停用/删除账号。
+func (h *Handler) authKeys() []string {
+	live := h.loadLive()
+	keys := make([]string, 0, 1+len(live.APIKeys))
+	keys = append(keys, live.APIKey)
+	keys = append(keys, live.APIKeys...)
+	return keys
+}
+
 func (h *Handler) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !httpauth.VerifyBearer(r, h.loadLive().APIKey) {
+		if !httpauth.VerifyBearerAny(r, h.authKeys()) {
 			writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "missing or invalid API key")
 			return
 		}

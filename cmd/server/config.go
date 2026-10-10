@@ -15,12 +15,39 @@ import (
 	"github.com/linguo2625469/workbuddy2api-panel/internal/prompt"
 )
 
+// APIKeyEntry 一把可分发的调用密钥（面板「密钥」页签发）。
+//
+// 与顶层 api_key 的关系：api_key 是【主密钥】，恒有效、也能进面板；
+// Keys 里的是【分发密钥】，只作用于 /v1 接口，可单独停用或吊销。
+type APIKeyEntry struct {
+	Name      string `json:"name"`                 // 标识（谁在用），停用/吊销按它定位
+	Secret    string `json:"secret"`               // Bearer 后半段原文
+	Enabled   bool   `json:"enabled"`              // 停用后立即失效，不必删除
+	Note      string `json:"note,omitempty"`       //
+	CreatedAt string `json:"created_at,omitempty"` //
+}
+
+// EnabledKeySecrets 返回所有【已启用且非空】的分发密钥原文，供 livecfg 快照使用。
+// 停用或空密钥被跳过，因此停用一把密钥无需重启即生效。
+func (c *Config) EnabledKeySecrets() []string {
+	out := make([]string, 0, len(c.Keys))
+	for _, k := range c.Keys {
+		if k.Enabled && k.Secret != "" {
+			out = append(out, k.Secret)
+		}
+	}
+	return out
+}
+
 // Config 顶层配置。
 type Config struct {
 	Listen    string `json:"listen"`     // ":7863"
 	APIKey    string `json:"api_key"`    // 空 = 不鉴权
 	AuthDir   string `json:"auth_dir"`   // ./auths
 	StateFile string `json:"state_file"` // ./data/state.json
+
+	// Keys 面板签发的多把调用密钥（只对 /v1 生效；面板 UI 仍只认 api_key）。
+	Keys []APIKeyEntry `json:"keys,omitempty"`
 
 	Panel struct {
 		// PackageDetailLimit 积分构成页单账号默认展示的最近到期包数；<=0 回落 5。

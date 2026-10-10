@@ -234,6 +234,7 @@ func main() {
 	// live 承载可热改字段（api_key/soft_rate/脱敏开关），面板保存配置时在线替换。
 	live := livecfg.New(livecfg.Snapshot{
 		APIKey:               cfg.APIKey,
+		APIKeys:              cfg.EnabledKeySecrets(),
 		SoftCooldown:         cfg.SoftRateDur,
 		SanitizeFingerprints: cfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     cfg.Logging.RequestClientInfo,
@@ -300,6 +301,7 @@ func main() {
 		Pool:     p,
 		Upstream: up,
 		APIKey:   cfg.APIKey,
+		APIKeys:  cfg.EnabledKeySecrets(),
 		// 反封禁移植：IP 级风控第一道闸（config server.max_rotate，默认 3）。
 		MaxRotate:    cfg.Server.MaxRotate,
 		Session:      sessRouter,
@@ -488,6 +490,7 @@ func saveConfig(raw []byte, path string, live *livecfg.Holder, p *pool.Pool, up 
 	// 4) 热应用：能立即生效的字段全部应用，并列出仍需重启的字段。
 	live.Store(livecfg.Snapshot{
 		APIKey:               newCfg.APIKey,
+		APIKeys:              newCfg.EnabledKeySecrets(),
 		SoftCooldown:         newCfg.SoftRateDur,
 		SanitizeFingerprints: newCfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     newCfg.Logging.RequestClientInfo,

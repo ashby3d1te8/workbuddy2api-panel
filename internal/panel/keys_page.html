@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>密钥分发 · WorkBuddy2API</title>
+<style>
+:root{--bg:#0f1115;--fg:#e6e8eb;--dim:#8b93a1;--line:#242a35;--card:#161a21;--accent:#4b8bf5;--ok:#2ea043;--warn:#d29922;--err:#f85149}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:24px 20px 60px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:12px;color:var(--dim)}
+input{background:#0b0e13;border:1px solid var(--line);color:var(--fg);border-radius:7px;padding:8px 10px;font:13px/1.4 inherit;min-width:180px}
+input:focus{outline:none;border-color:var(--accent)}
+button{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:9px 14px;font:13px inherit;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+button.danger{background:transparent;border:1px solid var(--err);color:var(--err)}
+button.xs{padding:4px 9px;font-size:12px}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+th{color:var(--dim);font-weight:500;font-size:12px}
+code{background:#0b0e13;border:1px solid var(--line);border-radius:5px;padding:2px 6px;font:12px ui-monospace,Consolas,monospace}
+.tag{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px}
+.tag.on{background:rgba(46,160,67,.15);color:var(--ok);border:1px solid rgba(46,160,67,.35)}
+.tag.off{background:rgba(139,147,161,.12);color:var(--dim);border:1px solid var(--line)}
+.msg{padding:10px 12px;border-radius:8px;margin:10px 0;font-size:13px;display:none}
+.msg.show{display:block}
+.msg.ok{background:rgba(46,160,67,.12);border:1px solid rgba(46,160,67,.35)}
+.msg.err{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35)}
+.secret{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.secret code{flex:1;min-width:260px;word-break:break-all;padding:8px 10px;color:var(--ok)}
+.note{color:var(--dim);font-size:12px;margin-top:10px;line-height:1.7}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>密钥分发</h1>
+  <div class="sub">
+    <a href="/panel/">← 回控制台</a>
+    <span style="margin:0 8px">·</span>
+    给调用方签发的网关密钥。<b>只对 <code>/v1</code> 生效</b>，拿不到本页与账号管理。
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="fld"><label>标识（谁在用）</label><input id="newName" placeholder="例如 alice / 手机 / 测试"></div>
+      <div class="fld"><label>备注（可选）</label><input id="newNote" placeholder="例如 2026-11 借用"></div>
+      <button id="btnCreate">签发新密钥</button>
+    </div>
+    <div id="createMsg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div style="font-weight:600">已签发的密钥 <span id="count" class="note"></span></div>
+      <div class="row">
+        <button class="ghost xs" id="btnReveal">显示完整密钥</button>
+        <button class="ghost xs" id="btnReload">刷新</button>
+      </div>
+    </div>
+    <div id="listMsg" class="msg"></div>
+    <table>
+      <thead><tr><th>标识</th><th>密钥</th><th>状态</th><th>备注</th><th>创建时间</th><th style="width:150px">操作</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="6" style="color:var(--dim)">加载中…</td></tr></tbody>
+    </table>
+    <div class="note">
+      <b>怎么用</b>：把地址和密钥给调用方 —— <code id="baseUrl"></code>，请求头 <code>Authorization: Bearer &lt;密钥&gt;</code>。
+      <br>
+      <b>完整密钥只在签发那一次显示</b>；之后列表默认打掩码，「显示完整密钥」可临时全量查看。
+      <br>
+      <b>本页不含</b>配额、限 IP、限模型、按密钥的用量统计 —— 那些在 manager 里。本页只做「签发 / 停用 / 删除」。
+      <br>
+      <b>注意</b>：每多一把可用密钥，就多一个能打你账号池的入口。不用了请及时停用或删除。
+    </div>
+  </div>
+</div>
+<script src="/panel/keys.js"></script>
+</body>
+</html>
