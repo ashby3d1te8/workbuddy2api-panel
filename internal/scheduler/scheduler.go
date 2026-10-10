@@ -400,6 +400,15 @@ func (s *Scheduler) runBatch(ctx context.Context, kinds []taskKind) {
 		wg.Add(1)
 		go func(k taskKind) {
 			defer wg.Done()
+			// 反封禁移植：同槽多族此前并行**同秒起步**（09:00 签到与旅行），
+			// 同一出口 IP 上叠出最密的一簇。按该族自己的节流值做闸门错峰
+			// （测试把节流置 0 → 零偏移，不拖慢用例）。
+			if d := schedOffset(pacingForKind(k)); d > 0 {
+				log.Printf("scheduler %v: start offset %s (same-slot de-cluster)", k, d.Round(time.Second))
+				if !sleepCtx(ctx, d) {
+					return
+				}
+			}
 			switch k {
 			case taskCheckin:
 				s.RunCheckinNow()
@@ -450,6 +459,7 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 func (s *Scheduler) RunCheckinNow() {
 	expiringSoon := s.ExpiringSoonWindow()
 	includeDisabled := s.includeDisabledInTasks()
+	pacedAcct := false
 	for _, st := range s.cfg.Pool.List() {
 		if st.Disabled && !includeDisabled {
 			continue
@@ -464,6 +474,12 @@ func (s *Scheduler) RunCheckinNow() {
 		if a.IsGlobal() {
 			continue
 		}
+		// 反封禁移植：签到此前零节流，全部账号背靠背打上游。放在「确定真要打上游」
+		// 之后——被跳过的账号（禁用/无凭证/global）不占用节流时间。
+		if pacedAcct {
+			time.Sleep(jitterPacing(checkinAccountDelay))
+		}
+		pacedAcct = true
 		// 企业版无签到体系：上游对 POST /v2/billing/meter/daily-checkin 直接
 		// 400 code 10001「企业账号不支持该操作」。跳过签到，但**不 continue**——
 		// 下方余额查询照常跑（企业额度走 get-enterprise-user-usage 口径，且是
@@ -535,7 +551,7 @@ func (s *Scheduler) runActivity(ctx context.Context) {
 		// 判断不成立——国际版 /v2/report 可用，跳过即国际版账号永远点不亮连登（上游
 		// a190252 同口径修复）。checkin/travel 的 global 门控不受影响，仍跳过。
 		if !first {
-			if !sleepCtx(ctx, activityAccountDelay) {
+			if !sleepCtx(ctx, jitterPacing(activityAccountDelay)) {
 				return // 优雅停机：不等限速睡满，剩余账号下轮再报
 			}
 		}
@@ -579,6 +595,7 @@ func (s *Scheduler) checkActivityStreak(a *auth.Auth) bool {
 // 刷新成功 → ClearSessionDead 清计数（错误判定的账号有复活路径）。
 func (s *Scheduler) RunKeepaliveNow() {
 	includeDisabled := s.includeDisabledInTasks()
+	pacedAcct := false
 	for _, st := range s.cfg.Pool.List() {
 		if st.Disabled && !includeDisabled {
 			continue
@@ -587,6 +604,11 @@ func (s *Scheduler) RunKeepaliveNow() {
 		if a == nil || a.RefreshTokenValue() == "" {
 			continue
 		}
+		// 反封禁移植：keepalive 此前零节流，全部账号背靠背刷新 token。
+		if pacedAcct {
+			time.Sleep(jitterPacing(keepaliveAccountDelay))
+		}
+		pacedAcct = true
 		if err := s.cfg.Upstream.RefreshToken(a); err != nil {
 			log.Printf("keepalive %s: %v", logfmt.Label(st.UID, st.Nickname), err)
 			var ue *upstream.Error
@@ -612,9 +634,14 @@ func (s *Scheduler) RunKeepaliveNow() {
 // 但不做签到、不刷新 token——只让"积分"这个观测量保持新鲜。
 // 供两类入口复用：后台周期任务（StartBalanceRefresh）与面板手动全量刷新。
 func (s *Scheduler) RunBalanceRefreshNow() {
-	var wg sync.WaitGroup
 	expiringSoon := s.ExpiringSoonWindow()
 	includeDisabled := s.includeDisabledInTasks()
+	// 反封禁移植：原实现是**每账号一个 goroutine 全并发**，配合默认 5 分钟的
+	// ticker（StartBalanceRefresh）就是「每 5 分钟 N 个并发请求、同一出口 IP、
+	// 同步突发」——正是要消除的簇特征，且量级远超真实对话流量。
+	// 改为串行 + 账号间抖动；ticker 间隔另由 config schedule.balance_refresh_minutes
+	// 拉长（部署值 30m）。若要把这条流量彻底去掉，置 balance_refresh_enabled=false。
+	pacedAcct := false
 	for _, st := range s.cfg.Pool.List() {
 		if st.Disabled && !includeDisabled {
 			continue
@@ -623,19 +650,18 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 		if a == nil {
 			continue
 		}
-		wg.Add(1)
-		go func(a *auth.Auth, uid string) {
-			defer wg.Done()
-			remain, total, expiring, earliestAt, earliestRemaining, err := s.cfg.Upstream.UserResourceDetailedWithExpiry(a, expiringSoon)
-			if err != nil {
-				log.Printf("balance %s: %v", logfmt.Label(uid, a.Nickname), err)
-				return
-			}
-			s.cfg.Pool.ReenableIfCredits(uid, remain, total)
-			s.cfg.Pool.SetCreditsDetailed(uid, remain, total, expiring, earliestAt, earliestRemaining)
-		}(a, st.UID)
+		if pacedAcct {
+			time.Sleep(jitterPacing(balanceAccountDelay))
+		}
+		pacedAcct = true
+		remain, total, expiring, earliestAt, earliestRemaining, err := s.cfg.Upstream.UserResourceDetailedWithExpiry(a, expiringSoon)
+		if err != nil {
+			log.Printf("balance %s: %v", logfmt.Label(st.UID, a.Nickname), err)
+			continue
+		}
+		s.cfg.Pool.ReenableIfCredits(st.UID, remain, total)
+		s.cfg.Pool.SetCreditsDetailed(st.UID, remain, total, expiring, earliestAt, earliestRemaining)
 	}
-	wg.Wait()
 }
 
 // StartBalanceRefresh 后台周期性余额刷新（独立 ticker goroutine，ctx 取消即停）。

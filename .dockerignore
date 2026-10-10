@@ -16,3 +16,8 @@ PLAN.md
 SPEC.md
 LOOP.md
 README.md
+
+# 本地备份文件不进构建上下文。config.json.bak-* 含明文密钥，且其 600 权限会让宿主机侧构建读取失败。
+*.bak
+*.bak-*
+*.bak.*

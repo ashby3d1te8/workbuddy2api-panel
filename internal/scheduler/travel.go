@@ -32,6 +32,21 @@ var activityAccountDelay = 800 * time.Millisecond
 // 对齐 scripts/task_first_buddy.py 实测的 1.05s 间隔口径。测试可置 0。
 var adoptReportGap = 1050 * time.Millisecond
 
+// ── 以下三项为反封禁移植（本地基线 → panel），默认值与本地已部署值一致 ──
+
+// checkinAccountDelay 签到账号间节流：panel 的 RunCheckinNow 此前**零节流**，
+// 排程 09:00/21:00 时全部账号背靠背打上游（签到 + 余额，1-2 次 RPC/号）。
+// 测试置 0（见 scheddelay_test.go）。
+var checkinAccountDelay = 1200 * time.Millisecond
+
+// keepaliveAccountDelay keepalive 账号间节流：RunKeepaliveNow 此前同样零节流，
+// 22:00 一次唤醒会让全部账号背靠背刷新 token（refresh 是最敏感的 auth 端点）。
+var keepaliveAccountDelay = 1200 * time.Millisecond
+
+// balanceAccountDelay 余额后台刷新账号间节流：RunBalanceRefreshNow 此前是
+// **每账号一个 goroutine 全并发**，配合 ticker 构成同步突发（详见该函数注释）。
+var balanceAccountDelay = 1200 * time.Millisecond
+
 // cstZone 上游每日重置按自然日 00:00 CST（Asia/Shanghai）。中国无夏令时，固定 +8 即可，
 // 不依赖容器 tzdata。
 var cstZone = time.FixedZone("CST", 8*60*60)
@@ -63,7 +78,7 @@ func (s *Scheduler) RunTravelNow() {
 			continue // 企业版门控：无成长体系（/activity/growth/* 上游一律 403），不发起任何上游调用
 		}
 		if !first {
-			time.Sleep(travelAccountDelay)
+			time.Sleep(jitterPacing(travelAccountDelay))
 		}
 		first = false
 		s.travelOne(a)
@@ -140,7 +155,7 @@ func (s *Scheduler) travelAdopt(a *auth.Auth) {
 	if err := s.cfg.Upstream.ReportChatActivity(a, fmt.Sprintf("wb2api-adopt-%d", time.Now().UnixMilli()), ""); err != nil {
 		log.Printf("travel %s: adopt preflight report: %v", logfmt.Label(a.UID, a.Nickname), err)
 	} else {
-		time.Sleep(adoptReportGap) // 给上游事件处理留时间（对齐脚本实测的 1.05s 间隔口径）
+		time.Sleep(jitterPacing(adoptReportGap)) // 给上游事件处理留时间（对齐脚本实测的 1.05s 间隔口径）
 	}
 	if err := s.cfg.Upstream.BuddyAgreement(a); err != nil {
 		log.Printf("travel %s: agreement: %v", logfmt.Label(a.UID, a.Nickname), err)

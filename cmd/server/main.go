@@ -262,6 +262,9 @@ func main() {
 		log.Printf("[reqlog] 请求指标已启用；JSONL 归档已关闭")
 	}
 
+	if cfg.Panel.DisableAuth {
+		log.Printf("WARN: panel.disable_auth=true —— 面板 Web 登录校验已关闭（/v1 的 api_key 鉴权不受影响）；面板可暂停/禁用/删除账号，请确认 7863 只绑 127.0.0.1 且闸门 allowPaths 不放行 /panel/")
+	}
 	pn := panel.New(panel.Config{
 		Pool:        p,
 		Usage:       rec,
@@ -270,6 +273,7 @@ func main() {
 		Scheduler:   sch,
 		AuthDir:     cfg.AuthDir,
 		APIKey:      cfg.APIKey,
+		DisableAuth: cfg.Panel.DisableAuth,
 		RedisMode:   redisMode,
 		StickyCount: sessCount,
 		Version:     appVersion,
@@ -291,10 +295,13 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stderr, pn.Logs()))
 	server.SetChatLogOutput(io.MultiWriter(os.Stdout, pn.Logs()))
 
+	log.Printf("[server] max_rotate=%d（单请求最多换号次数 = 同一出口 IP 的峰值放大倍数）", cfg.Server.MaxRotate)
 	h := server.NewHandler(server.Config{
-		Pool:         p,
-		Upstream:     up,
-		APIKey:       cfg.APIKey,
+		Pool:     p,
+		Upstream: up,
+		APIKey:   cfg.APIKey,
+		// 反封禁移植：IP 级风控第一道闸（config server.max_rotate，默认 3）。
+		MaxRotate:    cfg.Server.MaxRotate,
 		Session:      sessRouter,
 		StickyCount:  sessCount,
 		RedisMode:    redisMode,
@@ -534,6 +541,10 @@ func restartRequiredFields(c *Config) []string {
 	out = append(out, "session_sticky.ttl", "session_sticky.gc_interval")
 	out = append(out, "logging.request_archive_enabled", "logging.request_retention_days", "logging.request_archive_max_mb")
 	out = append(out, "server.read_timeout")
+	// panel.disable_auth 在装配期被写进 Panel 结构（main.go 的 DisableAuth: ...），
+	// 之后不再读取——不在 livecfg 热快照里，改配置不重启不生效。此前漏列会让面板
+	// 显示"已保存"却不提示需要重启（与 upstream.user_agent 同一类问题）。
+	out = append(out, "panel.disable_auth")
 	return out
 }
 

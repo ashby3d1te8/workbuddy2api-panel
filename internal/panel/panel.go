@@ -38,8 +38,12 @@ type Config struct {
 	Scheduler *scheduler.Scheduler // 手动触发签到/保活；nil 时对应接口返回 501
 	AuthDir   string               // OAuth 登录完成后凭证落盘目录
 	APIKey    string               // 空 = 不鉴权（与主服务同语义）；与 Live 同时给出时 Live 优先
-	RedisMode string               // "upstash" / "noop"，仅观测透出
-	Version   string               // 面板版本号（展示用）
+	// DisableAuth 显式关闭面板 Web 登录校验（只影响 /panel/api/*；/v1 的 api_key
+	// 鉴权由 server 侧独立执行，不受影响）。开启后任何能访问面板端口的一方都能
+	// 控制账号（暂停/禁用/删除/重新登录）——仅在本机绑定且闸门不放行 /panel/ 时用。
+	DisableAuth bool
+	RedisMode   string // "upstash" / "noop"，仅观测透出
+	Version     string // 面板版本号（展示用）
 
 	// Live 运行期可变配置（在线改配置立即生效）。
 	Live *livecfg.Holder
@@ -200,6 +204,12 @@ func (p *Panel) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // 即用新值（无需重启）。
 func (p *Panel) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// panel.disable_auth：显式关闭面板登录校验。只作用于面板路由——/v1 的
+		// api_key 鉴权在 internal/server 里独立执行，这里放行不会波及模型接口。
+		if p.cfg.DisableAuth {
+			next(w, r)
+			return
+		}
 		if !httpauth.VerifyBearer(r, p.apiKey()) {
 			writeErr(w, http.StatusUnauthorized, "invalid_api_key")
 			return

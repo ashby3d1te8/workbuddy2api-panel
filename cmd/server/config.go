@@ -25,6 +25,11 @@ type Config struct {
 	Panel struct {
 		// PackageDetailLimit 积分构成页单账号默认展示的最近到期包数；<=0 回落 5。
 		PackageDetailLimit int `json:"package_detail_limit"`
+		// DisableAuth 关闭面板 Web 登录校验。
+		// **只影响 /panel/api/***：/v1 的 api_key 鉴权由 server 侧独立执行，不受影响；
+		// 闸门的 upstreamKey 也照旧。开这个开关的前提 = 7863 只绑本机 + 闸门 allowPaths
+		// 不放行 /panel/（面板能暂停/禁用/删除账号、能重新登录账号）。
+		DisableAuth bool `json:"disable_auth"`
 	} `json:"panel"`
 
 	Logging struct {
@@ -45,6 +50,11 @@ type Config struct {
 	} `json:"logging"`
 
 	Server struct {
+		// MaxRotate 单请求最多换号次数（默认 3）。
+		// 它是「同一出口 IP 上，一次客户端请求最多触发几次上游请求」的直接乘数：
+		// 3 = 最坏放大 3 倍。IP 级风控看的是同 IP 请求密度，故这是第一道闸。
+		// （反封禁移植：本地基线配 2）
+		MaxRotate int `json:"max_rotate"`
 		// ReadTimeout 入站请求读取（含 body 上传）总时长上限（issue #100）。
 		// http.Server 的 ReadTimeout 覆盖整个请求读取：大上下文/文件块请求经
 		// 反代链转发时上传可超过旧固定值 60s，被掐后客户端拿到
@@ -543,6 +553,10 @@ func (c *Config) normalize() error {
 	// global 在途分档：0/负数视为未设置回落默认 2（WAF 403 修复 P1-1）。
 	if c.Pool.MaxInFlightGlobal <= 0 {
 		c.Pool.MaxInFlightGlobal = 2
+	}
+	// max_rotate：0/负数视为未设置，回落默认 3（保持 panel 既有行为）；显式配 1/2 才收紧。
+	if c.Server.MaxRotate <= 0 {
+		c.Server.MaxRotate = 3
 	}
 	if c.Pool.IdleWeightPerHour <= 0 {
 		c.Pool.IdleWeightPerHour = 0.5
