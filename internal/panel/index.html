@@ -617,7 +617,7 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <li><a href="#logs" data-view="logs">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 3.5h11M2.5 8h11M2.5 12.5h7"/></svg>
         运行日志</a></li>
-      <li class="nav-extra"><a href="/panel/keys">
+      <li><a href="#keys" data-view="keys">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.2" cy="8" r="2.6"/><path d="M7.8 8h6"/><path d="M11.4 8v2.4"/><path d="M13.6 8v1.6"/></svg>
         密钥分发</a></li>
     </ul>
@@ -1144,6 +1144,50 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
         <pre id="logBox"></pre>
       </div>
     </section>
+    <!-- 密钥分发 -->
+    <section class="view" id="view-keys" hidden>
+      <div class="box">
+        <header><h3>签发新密钥</h3><span class="grow"></span>
+          <span class="note">只对 <code>/v1</code> 生效 —— 拿不到本面板与账号管理</span></header>
+        <div class="pad">
+          <div class="grid2">
+            <label class="fld"><span class="lb">标识（谁在用）</span>
+              <input id="kxName" placeholder="例如 alice / 手机 / 测试">
+              <span class="hint">用于分辨和吊销，可随时停用或删除</span></label>
+            <label class="fld"><span class="lb">备注（可选）</span>
+              <input id="kxNote" placeholder="例如 2026-11 借用"></label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button class="primary" id="kxCreate" type="button">签发新密钥</button>
+            <span class="note" id="kxMsg"></span>
+          </div>
+          <div class="msg" id="kxFresh" hidden></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <header><h3>已签发的密钥</h3><span class="grow"></span>
+          <span class="note" id="kxCount"></span>
+          <button class="xs" id="kxReveal" type="button">显示完整密钥</button>
+          <button class="xs" id="kxReload" type="button">刷新</button></header>
+        <div class="tbl-wrap">
+          <table class="acc">
+            <thead><tr>
+              <th>标识</th><th>密钥</th><th>状态</th><th>备注</th><th>创建时间</th><th class="c-acts"></th>
+            </tr></thead>
+            <tbody id="kxBody"></tbody>
+          </table>
+        </div>
+        <div class="pad"><div class="note">
+          <b>怎么用</b>：把地址和密钥给调用方 —— <code id="kxBase"></code>，请求头 <code>Authorization: Bearer &lt;密钥&gt;</code>。
+          <br><b>完整密钥只在签发那一次显示</b>；之后默认打掩码，「显示完整密钥」可临时全量查看。
+          <br><b>本页不含</b>配额、限 IP、限模型、按密钥的用量统计 —— 那些在 manager 里。本页只做「签发 / 停用 / 删除」。
+          <br>⚠️ <b>走公网闸门（wb.wanannb.icu）时本页密钥不生效</b>，要用闸门自己的 <code>gw_</code> 令牌。
+          <br><b>注意</b>：每多一把可用密钥，就多一个能打你账号池的入口。不用了请及时停用或删除。
+        </div></div>
+      </div>
+    </section>
+
   </div>
 </div>
 

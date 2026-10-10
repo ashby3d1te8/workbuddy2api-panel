@@ -338,7 +338,7 @@ let lastPackagesAt = 0;
 let expFetching = false;                       // 到期卡片在途标记（防重复打上游）
 const EXP_FRESH_MS = 2 * 60 * 1000;            // 缓存新鲜窗口：2 分钟内复用
 
-const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志' };
+const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志', keys: '密钥分发' };
 function go(v) {
   view = v;
   document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'view-' + v);
@@ -349,6 +349,7 @@ function go(v) {
   if (v === 'logs') loadLogs();
   if (v === 'usage') loadUsage();
   if (v === 'packages') loadPackages();
+  if (v === 'keys') loadKeys();
   // 到期提醒卡片不再「打开账号池就自动查」：逐账号实时查上游，账号一多打开面板
   // 就卡死。数据只由卡片上的「检查」按钮显式触发；卡片初始隐藏。
   if (v === 'taskscenter') reattachQueueView();
@@ -2881,3 +2882,103 @@ if ($('btnExp')) $('btnExp').onclick = () => loadExpiry(true);
 
 // 「刷新」始终实时查（显式 force，不依赖事件对象真值）
 if ($('btnPk')) $('btnPk').onclick = () => loadPackages(true);
+
+/* ── 密钥分发 ─────────────────────────────────────────────────────── *
+ * 给调用方签发 /v1 用的密钥。三条边界写死在这里：
+ *   1) 签发出的密钥【只作用于 /v1】—— 面板自身的 /panel/api/* 只认主密钥
+ *      （后端 httpauth.VerifyBearerAny 只在 server 侧接线，panel 侧没接）；
+ *   2) 完整密钥只在创建那一次回显，列表默认掩码，需要时手动「显示完整密钥」；
+ *   3) 走公网闸门时本页密钥不生效 —— 闸门有自己的令牌表并会用主密钥替换
+ *      Authorization 头，这一点写在页面底部的说明里，避免误用。 */
+let kxRevealed = false;
+
+function kxCell(v, cls) {
+  return '<td' + (cls ? ' class="' + cls + '"' : '') + '>' + (v == null || v === '' ? '<span class="muted">—</span>' : v) + '</td>';
+}
+
+function kxRender(d) {
+  const tb = $('kxBody');
+  const ks = d.keys || [];
+  $('kxCount').textContent = ks.length + ' / ' + (d.max_count || 200) + ' 把';
+  if (!ks.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="muted">还没有签发过密钥 —— 上面填个标识就能签</td></tr>';
+    return;
+  }
+  tb.innerHTML = ks.map(function (k) {
+    const st = k.enabled ? '<span class="tag ok">启用</span>' : '<span class="tag mute">停用</span>';
+    return '<tr>'
+      + kxCell(esc(k.name))
+      + kxCell('<code>' + esc(k.secret) + '</code>')
+      + kxCell(st)
+      + kxCell(esc(k.note || ''))
+      + kxCell(esc((k.created_at || '').replace('T', ' ').slice(0, 19)), 'muted')
+      + '<td class="c-acts">'
+      +   '<button class="xs" data-act="toggle" data-name="' + esc(k.name) + '">' + (k.enabled ? '停用' : '启用') + '</button> '
+      +   '<button class="xs d" data-act="remove" data-name="' + esc(k.name) + '">删除</button>'
+      + '</td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function loadKeys() {
+  const tb = $('kxBody');
+  if (!tb) return;
+  const base = $('kxBase');
+  if (base) base.textContent = location.origin + '/v1';
+  try {
+    kxRender(await api('keys' + (kxRevealed ? '?reveal=1' : '')));
+  } catch (e) {
+    tb.innerHTML = '<tr><td colspan="6" class="bad">' + esc(e.message) + '</td></tr>';
+  }
+}
+
+if ($('kxBody')) {
+  $('kxBody').addEventListener('click', async function (ev) {
+    const b = ev.target.closest('button[data-act]');
+    if (!b) return;
+    const act = b.dataset.act, name = b.dataset.name;
+    if (act === 'remove' && !confirm('确定删除密钥「' + name + '」？调用方会立刻失效，不可恢复。')) return;
+    b.disabled = true;
+    try {
+      const r = await api('keys/' + act, { method: 'POST', body: JSON.stringify({ name: name }) });
+      toast(act === 'toggle' ? ('已' + (r.enabled ? '启用' : '停用') + '「' + name + '」') : ('已删除「' + name + '」'), 'ok');
+      loadKeys();
+    } catch (e) { toast('操作失败：' + e.message, 'bad'); b.disabled = false; }
+  });
+}
+
+if ($('kxCreate')) {
+  $('kxCreate').onclick = async function () {
+    const name = ($('kxName').value || '').trim();
+    const note = ($('kxNote').value || '').trim();
+    if (!name) { $('kxMsg').textContent = '请先填标识'; return; }
+    this.disabled = true;
+    $('kxMsg').textContent = '';
+    try {
+      const r = await api('keys', { method: 'POST', body: JSON.stringify({ name: name, note: note }) });
+      $('kxName').value = ''; $('kxNote').value = '';
+      const box = $('kxFresh');
+      box.hidden = false;
+      box.className = 'msg ok';
+      box.innerHTML = '已签发「' + esc(name) + '」。<b>完整密钥只显示这一次</b>，请立刻复制：'
+        + '<div class="inline" style="margin-top:8px"><code>' + esc(r.secret) + '</code>'
+        + '<button class="xs" id="kxCopy" type="button">复制</button></div>';
+      $('kxCopy').onclick = function () {
+        const btn = this;
+        (navigator.clipboard.writeText(r.secret)).then(function () { btn.textContent = '已复制'; },
+                                                      function () { btn.textContent = '复制失败，请手动选中'; });
+      };
+      this.disabled = false;
+      loadKeys();
+    } catch (e) { $('kxMsg').textContent = '签发失败：' + e.message; this.disabled = false; }
+  };
+}
+
+if ($('kxReveal')) {
+  $('kxReveal').onclick = function () {
+    kxRevealed = !kxRevealed;
+    this.textContent = kxRevealed ? '隐藏完整密钥' : '显示完整密钥';
+    loadKeys();
+  };
+}
+if ($('kxReload')) $('kxReload').onclick = () => loadKeys();
