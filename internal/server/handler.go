@@ -141,7 +141,8 @@ func NewHandler(cfg Config) *Handler {
 	h := &Handler{cfg: cfg, mux: http.NewServeMux()}
 	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
-	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
+	// /status 暴露账号池细节（uid/昵称/积分/冷却原因），只认主密钥。
+	h.mux.HandleFunc("GET /status", h.withMasterAuth(h.status))
 	h.mux.HandleFunc("GET /healthz", h.healthz)
 	if cfg.Panel != nil {
 		h.mux.Handle("/panel/", cfg.Panel) // /panel → /panel/ 由 ServeMux 自动重定向
@@ -170,6 +171,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.mux.ServeHTTP(w, r)
+}
+
+// withMasterAuth 只认【主密钥】，不认面板分发的密钥。
+//
+// 为什么必须有这一档：/status 会返回整个账号池的细节（uid、昵称、积分、
+// 成功/失败计数、冷却原因、最后成功时间）。分发出去的密钥是给调用方调模型的，
+// 若把 /status 一并放行，等于任何拿到 sk- 的人都能看到池子全貌 —— 那是信息泄露。
+// 所以会暴露池子内部状态的运维接口只挂这一档，/v1 才用 authKeys()。
+func (h *Handler) withMasterAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !httpauth.VerifyBearer(r, h.loadLive().APIKey) {
+			writeOpenAIError(w, http.StatusUnauthorized, "invalid_api_key", "missing or invalid API key")
+			return
+		}
+		next(w, r)
+	}
 }
 
 // authKeys 汇总本次请求可接受的密钥：主密钥 api_key + 面板分发的启用密钥。
