@@ -69,6 +69,25 @@ type Config struct {
 	// 写入；空或文件不存在 = model_probes 端点返回空集，面板不显示任何实测标注）。
 	// 只读展示：网关不解析、不依赖其内容做任何路由/出站决策。
 	ProbeFile string
+
+	// Updater 「版本更新」页签的宿主机更新服务（见 updater.go）。
+	// 面板在容器里没有 git/docker，更新只能由宿主机的 wb-panel-updater 代做；
+	// 这里只放地址与令牌，两类值都来自 config.json 的 updater 段。
+	// 经 livecfg 热读：面板里改地址/令牌下一个请求即生效，不必重启网关。
+	Updater UpdaterConfig
+}
+
+// UpdaterConfig 宿主机更新服务的接入参数（与 cmd/server 的 updater 段字段一一对应）。
+type UpdaterConfig struct {
+	// Enabled 总开关；false 时页签只显示"已关闭"，不发任何请求。
+	Enabled bool
+	// URL 更新服务地址，例如 http://172.18.0.1:13590（Docker 网桥网关 + 端口）。
+	// 空 = 未配置，页签显示"未配置更新服务"。
+	URL string
+	// Token 调用令牌，作为 X-WB-Token 头发给更新服务。
+	Token string
+	// Timeout 单次调用超时（Go duration 字符串，缺省 60s）。
+	Timeout string
 }
 
 // Panel 管理面板 handler。挂载方式：外层 mux Handle("/panel/", panel)，
@@ -198,6 +217,12 @@ func (p *Panel) routes() {
 	p.mux.HandleFunc("GET /panel/api/model_probes", p.withAuth(p.modelProbes))
 	p.mux.HandleFunc("GET /panel/api/config", p.withAuth(p.getConfig))
 	p.mux.HandleFunc("POST /panel/api/config", p.withAuth(p.saveConfig))
+	// 「版本更新」页签：转发给宿主机更新服务（wb-panel-updater）。
+	// 目标地址由服务端固定配置，不接受 query/body 传入 —— 面板只做透传，不做代理跳板。
+	p.mux.HandleFunc("GET /panel/api/updater/status", p.withAuth(p.updaterStatus))
+	p.mux.HandleFunc("POST /panel/api/updater/check", p.withAuth(p.updaterCheck))
+	p.mux.HandleFunc("POST /panel/api/updater/run", p.withAuth(p.updaterRun))
+	p.mux.HandleFunc("GET /panel/api/updater/log", p.withAuth(p.updaterLog))
 }
 
 // ServeHTTP 统一入口：先写安全响应头再分发，保证页面、静态资源、API

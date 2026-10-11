@@ -238,6 +238,10 @@ func main() {
 		SoftCooldown:         cfg.SoftRateDur,
 		SanitizeFingerprints: cfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     cfg.Logging.RequestClientInfo,
+		UpdaterEnabled:       cfg.Updater.Enabled,
+		UpdaterURL:           cfg.Updater.URL,
+		UpdaterToken:         cfg.Updater.Token,
+		UpdaterTimeout:       cfg.Updater.Timeout,
 	})
 	// 用量记录器：与 state 文件同目录，随 state_file 配置一起搬移。
 	// datapath 由 state 文件路径推出，避免再加一个配置项。
@@ -281,7 +285,15 @@ func main() {
 		Live:        live,
 		// 模型上限探测数据（scripts/probe_max_tokens.py --panel-out 写入）：
 		// 与 state 文件同目录，缺省 data/output_probes.json。
-		ProbeFile:  stateSibling(cfg.StateFile, "output_probes.json"),
+		ProbeFile: stateSibling(cfg.StateFile, "output_probes.json"),
+		// 「版本更新」页签接入宿主机更新服务（wb-panel-updater）：
+		// 面板自身在容器里没有 git/docker，只登记地址与令牌，实际更新由宿主机侧执行。
+		Updater: panel.UpdaterConfig{
+			Enabled: cfg.Updater.Enabled,
+			URL:     cfg.Updater.URL,
+			Token:   cfg.Updater.Token,
+			Timeout: cfg.Updater.Timeout,
+		},
 		ConfigPath: *cfgPath,
 		LoadConfig: func() (any, error) {
 			return Load(*cfgPath)
@@ -494,6 +506,10 @@ func saveConfig(raw []byte, path string, live *livecfg.Holder, p *pool.Pool, up 
 		SoftCooldown:         newCfg.SoftRateDur,
 		SanitizeFingerprints: newCfg.Features.SanitizeBlacklistFingerprints,
 		RecordClientInfo:     newCfg.Logging.RequestClientInfo,
+		UpdaterEnabled:       newCfg.Updater.Enabled,
+		UpdaterURL:           newCfg.Updater.URL,
+		UpdaterToken:         newCfg.Updater.Token,
+		UpdaterTimeout:       newCfg.Updater.Timeout,
 	})
 	up.SanitizeFingerprints.Store(newCfg.Features.SanitizeBlacklistFingerprints)
 	p.SetBreaker(newCfg.Pool.BreakerThreshold, newCfg.BreakerCooldownDur, newCfg.BreakerCooldownMaxD)

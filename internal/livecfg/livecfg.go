@@ -23,6 +23,13 @@ type Snapshot struct {
 	SoftCooldown         time.Duration // 429 软冷却基数（<=0 时调用方回退内置默认）
 	SanitizeFingerprints bool          // 出站请求体指纹脱敏
 	RecordClientInfo     bool          // 请求日志是否记录调用来源（客户端 IP / UA）
+
+	// Updater 面板「版本更新」页签的宿主机更新服务（地址/令牌/超时）。
+	// 放这里是为了热生效：面板里改了地址或令牌，下一个请求即用新值。
+	UpdaterEnabled bool
+	UpdaterURL     string
+	UpdaterToken   string
+	UpdaterTimeout string
 }
 
 // Holder 原子持有当前快照。

@@ -338,7 +338,7 @@ let lastPackagesAt = 0;
 let expFetching = false;                       // 到期卡片在途标记（防重复打上游）
 const EXP_FRESH_MS = 2 * 60 * 1000;            // 缓存新鲜窗口：2 分钟内复用
 
-const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志', keys: '密钥分发' };
+const TITLES = { accounts: '账号池', usage: '用量', packages: '积分构成', taskscenter: '任务中心', models: '模型与档位', config: '配置', logs: '运行日志', keys: '密钥分发', update: '版本更新' };
 function go(v) {
   view = v;
   document.querySelectorAll('.view').forEach(s => s.hidden = s.id !== 'view-' + v);
@@ -350,6 +350,7 @@ function go(v) {
   if (v === 'usage') loadUsage();
   if (v === 'packages') loadPackages();
   if (v === 'keys') loadKeys();
+  if (v === 'update') loadUpdate();
   // 到期提醒卡片不再「打开账号池就自动查」：逐账号实时查上游，账号一多打开面板
   // 就卡死。数据只由卡片上的「检查」按钮显式触发；卡片初始隐藏。
   if (v === 'taskscenter') reattachQueueView();
@@ -2982,3 +2983,132 @@ if ($('kxReveal')) {
   };
 }
 if ($('kxReload')) $('kxReload').onclick = () => loadKeys();
+
+/* ── 版本更新（宿主机更新服务 wb-panel-updater） ────────────────────────
+ *
+ * 面板进程跑在容器里：没有 git、没有 docker CLI、没有 docker.sock，做不到自我更新。
+ * 真正的更新由宿主机上常驻的 wb-panel-updater 执行（拉源码 → 重建镜像 → 重启容器），
+ * 本页只是它的展示与触发入口（后端转发见 internal/panel/updater.go）。
+ *
+ * 两个刻意的设计：
+ *   1) 不自动轮询远端 ——「检查更新」会真的打一次 GitHub（未认证有配额限制）。
+ *      进页面只读本地状态；只有任务在跑或服务不可达时才开定时器。
+ *   2) 更新期间容器会重启、本连接必然断开 —— 这不是错误，页面要能自己恢复：
+ *      持续拉不到状态就显示「重启中」，恢复后继续显示任务结果。
+ */
+let upTimer = null;
+function upSleep(ms) { if (upTimer) clearTimeout(upTimer); upTimer = setTimeout(loadUpdate, ms); }
+
+async function loadUpdate() {
+  let d = null;
+  try { d = await api('/panel/api/updater/status'); } catch (e) { d = null; }
+  const $svc = document.getElementById('upSvc');
+  const $hint = document.getElementById('upHint');
+  const $cur = document.getElementById('upCur');
+  const $remote = document.getElementById('upRemote');
+  if (!$svc) return;
+  if (!d || !d.ok) {
+    $svc.textContent = '面板后端无响应（容器可能在重启）';
+    upSleep(5000);
+    return;
+  }
+  if (!d.enabled) {
+    $svc.textContent = '已关闭';
+    $hint.textContent = '更新功能已关闭：config.json 里的 updater.enabled = false。'
+      + '地址 / 令牌 / 开关都可在线保存，下一个请求即生效（不必重启网关）。';
+    setUpJob(null);
+    return;
+  }
+  if (!d.reachable) {
+    $svc.textContent = '不可达';
+    $hint.textContent = '连不上更新服务：' + (d.error || '未知原因')
+      + '　目标 ' + (d.url || '(未配置)')
+      + '。请在宿主机确认 wb-panel-updater 正在运行（curl 该地址 /healthz 应返回 JSON）。';
+    setUpJob(null);
+    upSleep(6000);
+    return;
+  }
+  const st = d.status || {};
+  const job = st.job || null;
+  $cur.textContent = st.current || '-';
+  $remote.textContent = (job && job.to) ? job.to : (st.current || '-');
+  const dirty = Number(st.dirty_files || 0);
+  $svc.textContent = '在线 · ' + (st.branch ? (st.remote || 'origin') + '/' + st.branch : '-');
+  $hint.textContent = '「立即更新」= 宿主机执行：拉取远端 → 对齐工作区 → 重建镜像 → 重启容器（约 1-3 分钟）。'
+    + '重启时本页会短暂断开，任务在宿主机侧继续跑，恢复后自动读到结果。'
+    + (dirty > 0 ? ('　⚠️ 宿主机工作区有 ' + dirty + ' 处未提交改动 —— 默认拒绝更新，勾「强制」才会丢弃。') : '');
+  setUpJob(job);
+  if (job && job.running) upSleep(2000);
+}
+
+function setUpJob(job) {
+  const $phase = document.getElementById('upPhase');
+  const $detail = document.getElementById('upDetail');
+  const $log = document.getElementById('upLog');
+  if (!$phase) return;
+  if (!job) { $phase.textContent = '未执行'; $detail.textContent = '-'; if ($log) $log.textContent = ''; return; }
+  const runningZh = { checking: '检查中', fetching: '拉取远端', resetting: '对齐工作区',
+    building: '重建镜像', restarting: '重启容器', idle: '空闲' };
+  let label;
+  if (job.running) label = runningZh[job.phase] || job.phase;
+  else if (job.phase === 'done') label = '已完成';
+  else if (job.phase === 'failed') label = '失败';
+  else label = '空闲';
+  if (job.started_at && job.started_at.indexOf('0001-01-01') !== 0) {
+    const t = new Date(job.started_at);
+    if (!isNaN(t.getTime())) label += ' · ' + t.toLocaleTimeString();
+  }
+  $phase.textContent = label;
+  $detail.textContent = job.detail || '-';
+  loadUpdateLog();
+}
+
+async function loadUpdateLog() {
+  const el = document.getElementById('upLog');
+  if (!el) return;
+  try {
+    const d = await api('/panel/api/updater/log?n=300');
+    if (!d || !d.lines) return;
+    el.textContent = d.lines.slice(-300).join(String.fromCharCode(10));
+    el.scrollTop = el.scrollHeight;
+  } catch (e) { /* 容器重启期间读不到日志是预期内 */ }
+}
+
+async function upCheck() {
+  const b = document.getElementById('upCheck');
+  const old = b.textContent;
+  b.disabled = true; b.textContent = '检查中…';
+  try {
+    const d = await api('/panel/api/updater/check', { method: 'POST' });
+    if (!d || !d.ok) throw new Error((d && d.error) || '检查失败');
+    document.getElementById('upCur').textContent = d.current || '-';
+    document.getElementById('upRemote').textContent = d.remote || '-';
+    const behind = Number(d.behind || 0);
+    toast(behind > 0 ? ('远端领先 ' + behind + ' 个提交：' + (d.remote || '')) : '已是最新版本');
+  } catch (e) {
+    toast('检查更新失败：' + e.message);
+  } finally {
+    b.disabled = false; b.textContent = old;
+  }
+}
+
+async function upRun() {
+  if (!confirm('立即从远端更新并重启容器？更新期间面板会断开约 30-60 秒。')) return;
+  const b = document.getElementById('upRun');
+  const old = b.textContent;
+  b.disabled = true; b.textContent = '已提交…';
+  try {
+    const q = document.getElementById('upForce').checked ? '?force=1' : '';
+    const d = await api('/panel/api/updater/run' + q, { method: 'POST' });
+    if (!d || !d.ok) throw new Error((d && d.error) || '提交失败');
+    toast('更新任务已启动（宿主机侧执行）');
+    upSleep(1500);
+  } catch (e) {
+    toast('启动更新失败：' + e.message);
+  } finally {
+    setTimeout(function () { b.disabled = false; b.textContent = old; }, 1500);
+  }
+}
+
+if (document.getElementById('upCheck')) document.getElementById('upCheck').onclick = upCheck;
+if (document.getElementById('upRun')) document.getElementById('upRun').onclick = upRun;

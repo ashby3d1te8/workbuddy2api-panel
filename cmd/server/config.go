@@ -59,6 +59,25 @@ type Config struct {
 		DisableAuth bool `json:"disable_auth"`
 	} `json:"panel"`
 
+	// Updater 面板「版本更新」页签的宿主机更新服务（wb-panel-updater）。
+	//
+	// 为什么要有这一段：面板进程在容器里，没有 git / docker CLI / docker.sock，
+	// 无法自我更新；真正的更新动作（拉源码 → 重建镜像 → 重启容器）由宿主机上一个
+	// 常驻的 wb-panel-updater 代做。这里只登记它的地址与调用令牌。
+	//
+	// 热生效：字段进 livecfg 快照，面板里改了下一个请求即用新值，不必重启网关。
+	Updater struct {
+		// Enabled 总开关。false 时页签只显示"已关闭"，不发任何出站请求。
+		Enabled bool `json:"enabled"`
+		// URL 更新服务地址。Docker 默认网桥下宿主机的地址是 172.17.0.1（自定义网络
+		// 则是对应网桥网关，本项目 compose 实测 172.18.0.1）。空 = 未配置。
+		URL string `json:"url"`
+		// Token 调用令牌，作为 X-WB-Token 头发给更新服务。
+		Token string `json:"token"`
+		// Timeout 单次调用超时（Go duration 字符串，缺省 60s）。
+		Timeout string `json:"timeout"`
+	} `json:"updater"`
+
 	Logging struct {
 		// RequestArchiveEnabled 请求元数据 JSONL 归档开关，缺省 true。
 		RequestArchiveEnabled bool `json:"request_archive_enabled"`

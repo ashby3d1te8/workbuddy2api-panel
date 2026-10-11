@@ -620,6 +620,9 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
       <li><a href="#keys" data-view="keys">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5.2" cy="8" r="2.6"/><path d="M7.8 8h6"/><path d="M11.4 8v2.4"/><path d="M13.6 8v1.6"/></svg>
         密钥分发</a></li>
+      <li><a href="#update" data-view="update">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 13.6V4.4"/><path d="M4.4 7.6 8 4l3.6 3.6"/><path d="M2.6 2.6h10.8"/></svg>
+        版本更新</a></li>
     </ul>
     <div class="sig">
       <div class="row"><span class="pulse" id="navPulse"></span><span id="navState">连接中</span></div>
@@ -1185,6 +1188,35 @@ legend { font-size: 12px; color: var(--ink-3); font-weight: 600; padding-bottom:
           <br>⚠️ <b>走公网闸门（wb.wanannb.icu）时本页密钥不生效</b>，要用闸门自己的 <code>gw_</code> 令牌。
           <br><b>注意</b>：每多一把可用密钥，就多一个能打你账号池的入口。不用了请及时停用或删除。
         </div></div>
+      </div>
+    </section>
+    <!-- 版本更新：面板自身跑在容器里，没有 git/docker，真正的更新由宿主机的
+         wb-panel-updater 执行；本页只做展示与触发（见 internal/panel/updater.go）。 -->
+    <section class="view" id="view-update" hidden>
+      <div class="box">
+        <header><h3>更新服务</h3><span class="grow"></span>
+          <span class="note" id="upSvc">未连接</span></header>
+        <div class="pad">
+          <div class="grid2">
+            <div><div class="lb">当前版本</div><div class="mono" id="upCur">-</div></div>
+            <div><div class="lb">远端最新</div><div class="mono" id="upRemote">-</div></div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <button id="upCheck">检查更新</button>
+            <button id="upRun" class="primary">立即更新</button>
+            <label class="hint" style="margin-left:12px"><input type="checkbox" id="upForce"> 强制（丢弃宿主机上未提交的改动）</label>
+          </div>
+          <div class="note" style="margin-top:10px" id="upHint">
+            「立即更新」= 宿主机执行：拉取远端 → 对齐工作区 → 重建镜像 → 重启容器（约 1-3 分钟）。
+            重启时本页会短暂断开，任务在宿主机侧继续跑，恢复后自动读到结果。
+          </div>
+        </div>
+      </div>
+      <div class="box">
+        <header><h3>任务状态</h3><span class="grow"></span><span class="note" id="upPhase">未执行</span></header>
+        <div class="pad"><div class="mono" id="upDetail" style="margin-bottom:10px">-</div>
+          <div class="tbl-wrap"><pre class="mono" id="upLog" style="max-height:420px;overflow:auto;margin:0"></pre></div>
+        </div>
       </div>
     </section>
 
