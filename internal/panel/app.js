@@ -3092,6 +3092,23 @@ async function upCheck() {
   }
 }
 
+async function upRebuild() {
+  if (!confirm('按当前源码重建镜像并重启容器？\n源码没变也照做 —— 用于镜像与源码不同步（改过 compose、换过构建参数、上次 build 失败过）。')) return;
+  const b = document.getElementById('upRebuild');
+  const old = b.textContent;
+  b.disabled = true; b.textContent = '已提交…';
+  try {
+    const d = await api('/panel/api/updater/run?rebuild=1', { method: 'POST' });
+    if (!d || !d.ok) throw new Error((d && d.error) || '提交失败');
+    toast('重建任务已启动（宿主机侧执行）');
+    upSleep(1500);
+  } catch (e) {
+    toast('启动重建失败：' + e.message);
+  } finally {
+    setTimeout(function () { b.disabled = false; b.textContent = old; }, 1500);
+  }
+}
+
 async function upRun() {
   if (!confirm('立即从远端更新并重启容器？更新期间面板会断开约 30-60 秒。')) return;
   const b = document.getElementById('upRun');
@@ -3112,3 +3129,4 @@ async function upRun() {
 
 if (document.getElementById('upCheck')) document.getElementById('upCheck').onclick = upCheck;
 if (document.getElementById('upRun')) document.getElementById('upRun').onclick = upRun;
+if (document.getElementById('upRebuild')) document.getElementById('upRebuild').onclick = upRebuild;

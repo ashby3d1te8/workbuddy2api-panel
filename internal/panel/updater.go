@@ -128,12 +128,21 @@ func (p *Panel) updaterCheck(w http.ResponseWriter, r *http.Request) {
 
 // updaterRun POST /panel/api/updater/run —— 启动更新任务（宿主机侧异步执行）。
 //
-// force=1 时允许丢弃宿主机工作区的未提交改动；默认不丢。宿主机侧对 allow_force
-// 还有一道独立校验 —— 面板不是唯一闸门。
+// 两个可选参数，都只是转发给宿主机更新服务，最终闸门在那边：
+//   - force=1   允许丢弃宿主机工作区的未提交改动（服务端还要 allow_force=true）；
+//   - rebuild=1 源码已是远端版本时也重建镜像并重启（用于镜像与源码不同步）。
 func (p *Panel) updaterRun(w http.ResponseWriter, r *http.Request) {
 	path := "/update"
-	if q := strings.TrimSpace(r.URL.Query().Get("force")); q == "1" || q == "true" {
-		path += "?force=1"
+	q := r.URL.Query()
+	args := make([]string, 0, 2)
+	if v := strings.TrimSpace(q.Get("force")); v == "1" || v == "true" {
+		args = append(args, "force=1")
+	}
+	if v := strings.TrimSpace(q.Get("rebuild")); v == "1" || v == "true" {
+		args = append(args, "rebuild=1")
+	}
+	if len(args) > 0 {
+		path += "?" + strings.Join(args, "&")
 	}
 	code, body, err := p.updaterCall(http.MethodPost, path)
 	if err != nil {
