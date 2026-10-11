@@ -3000,16 +3000,26 @@ let upTimer = null;
 function upSleep(ms) { if (upTimer) clearTimeout(upTimer); upTimer = setTimeout(loadUpdate, ms); }
 
 async function loadUpdate() {
-  let d = null;
-  try { d = await api('/panel/api/updater/status'); } catch (e) { d = null; }
   const $svc = document.getElementById('upSvc');
   const $hint = document.getElementById('upHint');
   const $cur = document.getElementById('upCur');
   const $remote = document.getElementById('upRemote');
   if (!$svc) return;
+  let d = null;
+  try { d = await api('/panel/api/updater/status'); } catch (e) {
+    // 失败时先说清是哪一种失败 ——「面板后端无响应」与「面板回了错」是两回事，
+    // 早先一把笼统成前者，排查时会往错的方向找（实测踩到）。
+    $svc.textContent = '读取状态失败';
+    $hint.textContent = 'GET /panel/api/updater/status 报错：' + ((e && e.message) || e);
+    setUpJob(null);
+    upSleep(6000);
+    return;
+  }
   if (!d || !d.ok) {
-    $svc.textContent = '面板后端无响应（容器可能在重启）';
-    upSleep(5000);
+    $svc.textContent = '后端返回异常';
+    $hint.textContent = '面板后端返回了非预期内容：' + JSON.stringify(d || null).slice(0, 300)
+      + '　（多为版本不匹配：面板进程还是旧镜像）';
+    upSleep(6000);
     return;
   }
   if (!d.enabled) {
