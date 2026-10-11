@@ -3006,7 +3006,7 @@ async function loadUpdate() {
   const $remote = document.getElementById('upRemote');
   if (!$svc) return;
   let d = null;
-  try { d = await api('/panel/api/updater/status'); } catch (e) {
+  try { d = await api('/updater/status'); } catch (e) {
     // 失败时先说清是哪一种失败 ——「面板后端无响应」与「面板回了错」是两回事，
     // 早先一把笼统成前者，排查时会往错的方向找（实测踩到）。
     $svc.textContent = '读取状态失败';
@@ -3077,7 +3077,7 @@ async function loadUpdateLog() {
   const el = document.getElementById('upLog');
   if (!el) return;
   try {
-    const d = await api('/panel/api/updater/log?n=300');
+    const d = await api('/updater/log?n=300');
     if (!d || !d.lines) return;
     el.textContent = d.lines.slice(-300).join(String.fromCharCode(10));
     el.scrollTop = el.scrollHeight;
@@ -3089,7 +3089,7 @@ async function upCheck() {
   const old = b.textContent;
   b.disabled = true; b.textContent = '检查中…';
   try {
-    const d = await api('/panel/api/updater/check', { method: 'POST' });
+    const d = await api('/updater/check', { method: 'POST' });
     if (!d || !d.ok) throw new Error((d && d.error) || '检查失败');
     document.getElementById('upCur').textContent = d.current || '-';
     document.getElementById('upRemote').textContent = d.remote || '-';
@@ -3108,7 +3108,7 @@ async function upRebuild() {
   const old = b.textContent;
   b.disabled = true; b.textContent = '已提交…';
   try {
-    const d = await api('/panel/api/updater/run?rebuild=1', { method: 'POST' });
+    const d = await api('/updater/run?rebuild=1', { method: 'POST' });
     if (!d || !d.ok) throw new Error((d && d.error) || '提交失败');
     toast('重建任务已启动（宿主机侧执行）');
     upSleep(1500);
@@ -3126,7 +3126,7 @@ async function upRun() {
   b.disabled = true; b.textContent = '已提交…';
   try {
     const q = document.getElementById('upForce').checked ? '?force=1' : '';
-    const d = await api('/panel/api/updater/run' + q, { method: 'POST' });
+    const d = await api('/updater/run' + q, { method: 'POST' });
     if (!d || !d.ok) throw new Error((d && d.error) || '提交失败');
     toast('更新任务已启动（宿主机侧执行）');
     upSleep(1500);
