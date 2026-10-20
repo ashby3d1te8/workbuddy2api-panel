@@ -7,10 +7,13 @@ COPY go.mod ./
 RUN go mod download
 COPY . .
 # 一次编译全部二进制（工具进镜像，容器内可直接跑脚本）。全部 -trimpath -s -w。
+# stats_bin / acct_bin：从上游 v2.8.0 搬来的两个运维工具（纯标准库，见 cmd/stats、cmd/acct）。
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/wb2api ./cmd/server \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/signin_bin ./cmd/signin \
  && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/login ./cmd/login \
- && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/credit ./cmd/credit
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/credit ./cmd/credit \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/stats_bin ./cmd/stats \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/acct_bin ./cmd/acct
 
 FROM alpine:3.20
 # Alpine 包源改国内镜像：dl-cdn.alpinelinux.org 实测频繁 Connection aborted /
@@ -28,6 +31,8 @@ COPY --from=build /out/wb2api /app/wb2api
 COPY --from=build /out/signin_bin /app/signin_bin
 COPY --from=build /out/login /app/login
 COPY --from=build /out/credit /app/credit
+COPY --from=build /out/stats_bin /app/stats
+COPY --from=build /out/acct_bin /app/acct
 COPY login.sh signin.sh credit.sh /app/
 COPY scripts/probe_active.py /app/scripts/probe_active.py
 RUN sed -i 's/\r$//' /app/login.sh /app/signin.sh /app/credit.sh && chmod 755 /app/login.sh /app/signin.sh /app/credit.sh
