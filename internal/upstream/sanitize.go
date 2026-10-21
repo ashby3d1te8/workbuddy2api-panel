@@ -78,6 +78,69 @@ var sanitizeRewrites = [][2]string{
 	},
 }
 
+// dshSystemRe 2026-10-20 起，DSH（DeepSeek Harness）等客户端的系统提示词开头句式
+// 被上游按整句拦截：400 code=11128「Illegal API invocation from an unapproved
+// channel」（issue #533）。与 #61（Sisyphus-Junior 指纹）同一机制——大小写不敏感的
+// 连续 substring 匹配，破坏句式结构即恢复 200。
+//
+// 覆盖三类句式（品牌 / 模型名任意）：
+//
+//	You are an AI agent powered by <brand>.
+//	You are a coding agent powered by <model>.
+//	You are an AI assistant built on <brand>.
+//
+// 统一改写为 "You are a helpful AI assistant."，不保留原品牌——保留品牌等于换一个
+// 指纹继续撞。#533 的维护者最终也收敛到「不依赖具体品牌」的通用改写。
+//
+// 句尾写法有讲究：`[^\n]{1,120}?` 惰性 + 句号后必须是空白或行尾。模型名里可能带点
+// （deepseek-v4.1-flash），贪婪匹配会吃掉后文；而 `[^\n.]` 又会在版本点后面提前
+// 收口，两种都会留下残句。RE2 没有前瞻，故把终结符做成捕获组 $2 回填。
+//
+// 作用域严格限定 system / developer：这三句只会以系统提示词形态出现，
+// user / assistant / tool 里的同名文本属于用户数据，不改写（#533 明确要求）。
+var dshSystemRe = regexp.MustCompile("(?i)(You are an? (?:AI agent|coding agent|AI assistant) (?:powered by|built on) [^\\n]{1,120}?\\.)(\\s|$)")
+
+const dshReplacement = "You are a helpful AI assistant.$2"
+
+// sanitizeSystemText 系统提示词专用改写：只认 DSH 那三类句式，其余原样返回。
+func sanitizeSystemText(text string) string {
+	// 快路径：小写包含判定——上游匹配大小写不敏感，指纹也可能全小写出现。
+	low := strings.ToLower(text)
+	if !strings.Contains(low, "you are a") ||
+		(!strings.Contains(low, "powered by") && !strings.Contains(low, "built on")) {
+		return text
+	}
+	return dshSystemRe.ReplaceAllString(text, dshReplacement)
+}
+
+// sanitizeSystemContent 对 system / developer 消息的 content 施加系统提示词改写；
+// 兼容 string 与多模态数组（只动 text part）。
+func sanitizeSystemContent(v any) (any, bool) {
+	switch c := v.(type) {
+	case string:
+		s := sanitizeSystemText(c)
+		return s, s != c
+	case []any:
+		changed := false
+		for _, p := range c {
+			m, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			text, ok := m["text"].(string)
+			if !ok {
+				continue
+			}
+			if s := sanitizeSystemText(text); s != text {
+				m["text"] = s
+				changed = true
+			}
+		}
+		return c, changed
+	}
+	return v, false
+}
+
 // sanitizeText 单段文本净化：预检不中 → 返回原串（零分配）。
 func sanitizeText(text string) string {
 	if !hasFingerprint(text) {
@@ -183,6 +246,16 @@ func sanitizeMessages(messages []any) bool {
 		m, ok := msg.(map[string]any)
 		if !ok {
 			continue
+		}
+		// system / developer 消息先做系统提示词专用改写（DSH 指纹，issue #533）。
+		// 只在这两种角色上做：user / assistant / tool 里的同名文本属于用户数据。
+		if role, _ := m["role"].(string); role == "system" || role == "developer" {
+			if c, ok := m["content"]; ok {
+				if nc, ch := sanitizeSystemContent(c); ch {
+					m["content"] = nc
+					changed = true
+				}
+			}
 		}
 		// content 与 tool_calls 各自独立判断：content 可以为 null（工具调用轮），
 		// 早期版本在此 continue，导致这类消息的 tool_calls 完全不被净化。

@@ -274,9 +274,17 @@ func (c *Client) injectConversationHeaders(req *http.Request, meta ChatMeta) {
 		convReqID = session.NewMessageID()
 	}
 	messageID := session.NewMessageID()
-	if meta.ConversationID != "" {
-		req.Header.Set("X-Conversation-ID", meta.ConversationID)
+	// 2026-10-16 起上游对国际版 chat 强制校验 X-Conversation-* 三件套：缺
+	// X-Conversation-ID 直接 400 / code 11-128 / "conversation id missing"。
+	// 官方客户端三件套齐发；客户端没给 conversationId 时**必须伪造一个**，否则
+	// 整条线每轮都失败（DSH / Codex / Trae / ZCode 都不带这个字段）。
+	// 社区实测：值用随机 ID 即可——上游不按它存历史，只当渠道 / 会话标记，
+	// 不需要维护会话映射表。
+	convID := meta.ConversationID
+	if convID == "" {
+		convID = session.NewMessageID()
 	}
+	req.Header.Set("X-Conversation-ID", convID)
 	req.Header.Set("X-Conversation-Request-ID", convReqID)
 	req.Header.Set("X-Conversation-Message-ID", messageID)
 	req.Header.Set("X-Request-ID", messageID)
