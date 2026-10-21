@@ -185,7 +185,7 @@ func (c *Client) injectCodeBuddyRequest(req *http.Request) {
 // 复用同值；TraceID 透传入站值（空 = 回落 conversationRequestID）。
 // messageID（消息级，每条独立）由 ChatHeaders 内部生成，无需外部可见。
 type ChatMeta struct {
-	ConversationID        string // X-Conversation-ID：body 提取的入站值，空则不发（透传优先，不伪造）
+	ConversationID        string // X-Conversation-ID：body 提取的入站值；空则由 injectConversationHeaders 自造一个（上游 2026-10-16 起三件套强制，缺则 400）
 	ConversationRequestID string // X-Conversation-Request-ID / X-Root-Request-ID：聚合主键，必发
 	TraceID               string // X-Trace-ID：入站透传值，空则回落 conversationRequestID
 }
@@ -256,8 +256,11 @@ func (c *Client) injectGlobalChatHeaders(req *http.Request, a *auth.Auth) {
 
 // injectConversationHeaders 注入官方客户端会话头族（issue #35 后台聚合）。
 // 头族分四层，各司其职：
-//   - X-Conversation-ID：会话级，多轮稳定（body 的 conversationId）。空则不发——
-//     透传客户端原值优先，客户端没给就不伪造，避免误导后台建错会话。
+//   - X-Conversation-ID：会话级（body 的 conversationId）。客户端给了就原样透传；
+//     没给必须自造一个 32 hex——2026-10-16 起国际版 chat 强制校验三件套，缺这个头
+//     直接 400 / code 11-128 / "conversation id missing"，DSH / Codex / Trae /
+//     ZCode 都不带它。上游不按这个 id 存历史（社区实测两轮同 id 仍无上下文），
+//     故每轮新生成即可，不需要维护会话映射。
 //   - X-Conversation-Request-ID：**对话轮级聚合主键**，必发。一次 user send 内的
 //     所有 tool call/重试/换号/降级复用同一个 → 后台按它聚合成一条（不再碎片化）。
 //   - X-Conversation-Message-ID = X-Request-ID：消息级，每条独立（32 位 hex）。
