@@ -41,7 +41,10 @@ func ResolveConversationID(body []byte) string {
 	if v := strOrEmpty(obj["conversation_id"]); v != "" {
 		return v
 	}
-	return strOrEmpty(obj["conversationId"])
+	if v := strOrEmpty(obj["conversationId"]); v != "" {
+		return v
+	}
+	return conversationIDFromFirstUser(obj)
 }
 
 // NewMessageID 生成消息级 ID：32 位 hex（UUID v4 去横线的长度形态），对齐官方
@@ -226,4 +229,48 @@ func TurnRequestID(turnKey string) string {
 	}
 	sum := sha256.Sum256([]byte(deriveSalt + "|" + turnKey))
 	return hex.EncodeToString(sum[:16])
+}
+
+// conversationIDFromFirstUser 从首条 user 消息派生 32 hex 会话 ID。
+//
+// 依据（magpie packages/workbuddy/README.md）：X-Conversation-ID 的取值是「会话名，
+// 否则首条 user 消息」，两个都没有时才不造——因为凭空造一个会把同一次会话在上游
+// 用量里拆成很多次（"a made-up conversation of the request's own being what splits
+// one conversation into many in the usage detail"）。这里取首条 user 文本的 sha256
+// 前 16 字节：跨轮稳定、不可逆、不需要维护任何映射表。
+func conversationIDFromFirstUser(obj map[string]any) string {
+	msgs, ok := obj["messages"].([]any)
+	if !ok {
+		return ""
+	}
+	for _, m := range msgs {
+		mm, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		if role, _ := mm["role"].(string); role != "user" {
+			continue
+		}
+		var text string
+		switch c := mm["content"].(type) {
+		case string:
+			text = c
+		case []any:
+			var b strings.Builder
+			for _, p := range c {
+				if pm, ok := p.(map[string]any); ok {
+					if t, ok := pm["text"].(string); ok {
+						b.WriteString(t)
+					}
+				}
+			}
+			text = b.String()
+		}
+		if strings.TrimSpace(text) == "" {
+			return ""
+		}
+		sum := sha256.Sum256([]byte(strings.TrimSpace(text)))
+		return hex.EncodeToString(sum[:16])
+	}
+	return ""
 }

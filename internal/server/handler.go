@@ -718,6 +718,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 降级裁决：append 在降级期退化为 replace（Rewrite(Degraded)）——append 带
 	// 指纹原文重试是确定性再撞墙，replace 是一次性最小抢救（issue #129 设计 §4）。
 	degradedApplied := false
+	movedApplied := false
 	if h.cfg.PromptMode == "custom" && h.cfg.PromptText != "" {
 		body = prompt.Rewrite(body, h.cfg.PromptText)
 	} else if h.cfg.PromptMode == "append" && h.cfg.PromptText != "" && !h.degrade.Active() {
@@ -883,6 +884,20 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			} else {
 				kind = upstream.Classify(status, string(respBody))
 				uerr = &upstream.Error{Kind: kind, Status: status, Msg: string(respBody)}
+			}
+			// 11128 二级兜底：把 system 整段搬进首条 user（<instructions> 包裹），system
+			// 位置换官方默认提示词。依据：上游 11128 只扫 system / assistant 两个角色
+			// （magpie packages/workbuddy/README.md 0.1.29）。相比「换中性提示词」，这条
+			// 不丢客户端原始指令——只是换了它所在的位置，任何未收录的指纹都自动失效。
+			if kind == upstream.ErrContentBlocked && !movedApplied {
+				if nb, ok := prompt.MoveIntoUser(body, prompt.DefaultSystem()); ok {
+					body = nb
+					movedApplied = true
+					delete(tried, acct.UID)
+					releaseHeld()
+					log.Printf("content-blocked -> system moved into first user message retry")
+					continue
+				}
 			}
 			// 内容拦截误报（passthrough/append 模式首遇）：判定为 system 指纹误报，
 			// 触发降级到次日 00:00 CST，换 Degraded 中性提示词同请求内重试（append

@@ -345,6 +345,9 @@ func (c *Client) injectAttribution(req *http.Request) {
 		return
 	}
 	req.Header.Set("X-Agent-Purpose", "conversation")
+	// X-Agent-Intent=craft：官方桌面端每一次 chat 都带（magpie packages/workbuddy/README.md 的头族清单）。
+	// 缺它不掉单，但归因里少一个字段——少一个字段就是多一分「非官方客户端」的味道。
+	req.Header.Set("X-Agent-Intent", "craft")
 	req.Header.Set("X-IDE-Name", name)
 	req.Header.Set("X-IDE-Type", name)
 	req.Header.Set("X-IDE-Version", c.clientVersion())
