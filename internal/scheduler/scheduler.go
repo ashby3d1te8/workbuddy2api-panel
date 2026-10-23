@@ -82,6 +82,11 @@ type Scheduler struct {
 	// balanceInterval 余额刷新间隔（纳秒，0=暂停）。atomic 读写：执行循环每轮读当前值，
 	// SetBalanceInterval 可任意时刻热改（面板保存配置）。
 	balanceInterval atomic.Int64
+
+	// probeDead 连续「登录态失效」计数（uid → 次数）。余额刷新每轮顺带做一次
+	// 登录态体检：401/12153 记一次，连续 2 次才 Pool.Disable（一次 401 可能是抖动）。
+	probeDeadMu sync.Mutex
+	probeDead   map[string]int
 }
 
 // New 构建。
@@ -656,9 +661,23 @@ func (s *Scheduler) RunBalanceRefreshNow() {
 		pacedAcct = true
 		remain, total, expiring, earliestAt, earliestRemaining, err := s.cfg.Upstream.UserResourceDetailedWithExpiry(a, expiringSoon)
 		if err != nil {
+			// 登录态失效（401 / 12153）：exp 还没到但会话已被顶掉，任务重试也不会好。
+			// 连续 2 次才禁用——一次 401 可能是网络抖动或上游抽风，误杀一个好号的代价
+			// 比多跑一轮探测大得多。余额刷新每 30 分钟一轮，所以最迟 1 小时内收敛。
+			if upstream.IsSessionDead(err) {
+				n := s.noteDeadProbe(st.UID)
+				log.Printf("probe %s: 登录态失效（连续第 %d 次）", logfmt.Label(st.UID, a.Nickname), n)
+				if n >= 2 {
+					s.cfg.Pool.Disable(st.UID, "session dead (balance probe)")
+					s.clearDeadProbe(st.UID)
+					log.Printf("probe %s: 连续 %d 次 401 → 已禁用，需重新登录", logfmt.Label(st.UID, a.Nickname), n)
+				}
+				continue
+			}
 			log.Printf("balance %s: %v", logfmt.Label(st.UID, a.Nickname), err)
 			continue
 		}
+		s.clearDeadProbe(st.UID)
 		s.cfg.Pool.ReenableIfCredits(st.UID, remain, total)
 		s.cfg.Pool.SetCreditsDetailed(st.UID, remain, total, expiring, earliestAt, earliestRemaining)
 	}
@@ -711,4 +730,22 @@ func (s *Scheduler) SetBalanceInterval(d time.Duration) {
 	}
 	s.balanceInterval.Store(int64(d))
 	poke(s.rearmBalance)
+}
+
+// noteDeadProbe 记一次「登录态失效」，返回该账号连续失效的次数。
+func (s *Scheduler) noteDeadProbe(uid string) int {
+	s.probeDeadMu.Lock()
+	defer s.probeDeadMu.Unlock()
+	if s.probeDead == nil {
+		s.probeDead = map[string]int{}
+	}
+	s.probeDead[uid]++
+	return s.probeDead[uid]
+}
+
+// clearDeadProbe 清掉连续失效计数（任一成功即清零）。
+func (s *Scheduler) clearDeadProbe(uid string) {
+	s.probeDeadMu.Lock()
+	defer s.probeDeadMu.Unlock()
+	delete(s.probeDead, uid)
 }

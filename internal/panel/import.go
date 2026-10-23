@@ -11,27 +11,28 @@ import (
 	"time"
 
 	"github.com/linguo2625469/workbuddy2api-panel/internal/auth"
+	"github.com/linguo2625469/workbuddy2api-panel/internal/upstream"
 )
 
 // cockpitAccount 映射 cockpit tools 导出格式的单个账号。
 type cockpitAccount struct {
-	ID            string `json:"id"`
-	Email         string `json:"email"`
-	UID           string `json:"uid"`
-	Nickname      string `json:"nickname"`
-	AccessToken   string `json:"access_token"`
-	RefreshToken  string `json:"refresh_token"`
-	TokenType     string `json:"token_type"`
-	ExpiresAt     int64  `json:"expires_at"`
-	Domain        string `json:"domain"`
-	DosageNotify  string `json:"dosage_notify_code"`
-	PaymentType   string `json:"payment_type"`
-	Status        string `json:"status"`
-	UsageUpdatedAt int64 `json:"usage_updated_at"`
-	LastCheckin   int64  `json:"last_checkin_time"`
-	CheckinStreak int    `json:"checkin_streak"`
-	CreatedAt     int64  `json:"created_at"`
-	LastUsed      int64  `json:"last_used"`
+	ID             string `json:"id"`
+	Email          string `json:"email"`
+	UID            string `json:"uid"`
+	Nickname       string `json:"nickname"`
+	AccessToken    string `json:"access_token"`
+	RefreshToken   string `json:"refresh_token"`
+	TokenType      string `json:"token_type"`
+	ExpiresAt      int64  `json:"expires_at"`
+	Domain         string `json:"domain"`
+	DosageNotify   string `json:"dosage_notify_code"`
+	PaymentType    string `json:"payment_type"`
+	Status         string `json:"status"`
+	UsageUpdatedAt int64  `json:"usage_updated_at"`
+	LastCheckin    int64  `json:"last_checkin_time"`
+	CheckinStreak  int    `json:"checkin_streak"`
+	CreatedAt      int64  `json:"created_at"`
+	LastUsed       int64  `json:"last_used"`
 }
 
 // importCockpit 接收 cockpit tools 导出的 JSON 文件，批量导入账号到池中。
@@ -121,6 +122,16 @@ func (p *Panel) importCockpit(w http.ResponseWriter, r *http.Request) {
 			_, _ = a.BackfillRealm()
 		}
 
+		// 入库即验：先确认这份凭证在上游还活着，再落盘。
+		//
+		// 死凭证的 accessToken exp 可能还有十几天，光看时间看不出来：2026-10-23 实测
+		// 一份 11-08 才过期的凭证，所有 /v2/* 端点 401（会话被更晚的登录顶掉）。这种号
+		// 入了池只会白吃轮转，所以在入口就拦掉，并把原因直接写给操作者。
+		if _, _, _, _, _, perr := p.cfg.Upstream.UserResourceDetailedWithExpiry(a, time.Hour); perr != nil && upstream.IsSessionDead(perr) {
+			skipped++
+			errs = append(errs, fmt.Sprintf("uid=%s: 登录态无效（上游 401，会话已被作废）—— 需在客户端重新登录后重新导出", uid))
+			continue
+		}
 		if err := a.SaveAtomic(); err != nil {
 			skipped++
 			errs = append(errs, fmt.Sprintf("uid=%s: save auth failed: %v", uid, err))
